@@ -1,4 +1,4 @@
-name: Build and Test
+name: C++ Build with CMake
 
 on:
   push:
@@ -14,16 +14,11 @@ jobs:
     - name: Checkout source code
       uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-
     - name: Install dependencies
-      run: |
-        pip install -r requirements.txt
+      run: sudo apt-get update && sudo apt-get install -y cmake g++ make
 
-    - name: Run tests
-      run: |
-        pytest
+    - name: Create Build Directory
+      run: mkdir -p build && cd build && cmake ..
 
+    - name: Build
+      run: cd build && make -j$(nproc)
