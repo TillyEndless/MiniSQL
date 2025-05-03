@@ -1,2 +1,2 @@
-# DB-Co
+# MiniSQL
 The code base shared by the members of the Database system course.
