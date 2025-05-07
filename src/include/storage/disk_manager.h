@@ -100,6 +100,7 @@ class DiskManager {
   std::recursive_mutex db_io_latch_;
   bool closed{false};
   char meta_data_[PAGE_SIZE];
+  // by zat: 1. PAGE_SIZE为一页总的大小 2. meta_data_如[1.3]所说需要转换为disk_file_meta_page，可以从头文件进去看定义
 };
 
 #endif

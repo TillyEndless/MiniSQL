@@ -2,6 +2,7 @@
 #define MINISQL_BITMAP_PAGE_H
 
 #include <bitset>
+#include <cstring>
 
 #include "common/config.h"
 #include "common/macros.h"
@@ -29,7 +30,13 @@ class BitmapPage {
    * @return whether a page in the extent is free
    */
   bool IsPageFree(uint32_t page_offset) const;
-
+  
+  /**
+   * Here zat add a Ctor!
+   */
+  BitmapPage():page_allocated_(0),next_free_page_(0) {
+      std::memset(bytes, 0, sizeof(bytes));
+  }
  private:
   /**
    * check a bit(byte_index, bit_index) in bytes is free(value 0).

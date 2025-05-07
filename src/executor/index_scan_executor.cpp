@@ -1,4 +1,5 @@
 #include "executor/executors/index_scan_executor.h"
+#include<algorithm> // CMake报错，加上试试
 
 class RowidCompare {
  public:

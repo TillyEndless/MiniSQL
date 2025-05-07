@@ -25,6 +25,7 @@ DiskManager::DiskManager(const std::string &db_file) : file_name_(db_file) {
       throw std::exception();
     }
   }
+
   ReadPhysicalPage(META_PAGE_ID, meta_data_);
 }
 
@@ -48,32 +49,117 @@ void DiskManager::WritePage(page_id_t logical_page_id, const char *page_data) {
 }
 
 /**
- * TODO: Student Implement
+ * Zat Implement
  */
 page_id_t DiskManager::AllocatePage() {
-  ASSERT(false, "Not implemented yet.");
-  return INVALID_PAGE_ID;
+  std::scoped_lock lock(db_io_latch_);
+  auto *pm = reinterpret_cast<DiskFileMetaPage *>(meta_data_);
+  uint32_t offset;
+
+  //==============满了==================
+  if(pm->GetAllocatedPages() >= MAX_VALID_PAGE_ID) return INVALID_PAGE_ID;
+  
+  //=============正常插入=====================
+  for (page_id_t extent_index = 0; extent_index < pm->GetExtentNums(); extent_index++) {
+    // 每个bitmap取出来看一眼再丢回去，这里for的是逻辑页号
+    // meta_page_id就是0
+    page_id_t phy_bitmap_addr = META_PAGE_ID + 1 + extent_index * (1 + BITMAP_SIZE);
+    char bitmap_buffer[PAGE_SIZE];
+    ReadPhysicalPage(phy_bitmap_addr, bitmap_buffer);
+    auto *pb = reinterpret_cast<BitmapPage<PAGE_SIZE> *>(bitmap_buffer);
+    if(pb->AllocatePage(offset)){
+      // allocate更新的部分写回
+      WritePhysicalPage(phy_bitmap_addr, bitmap_buffer);
+      // disk manager的meta data更新
+      pm->num_allocated_pages_++;
+      pm->extent_used_page_[extent_index]++;
+      WritePhysicalPage(META_PAGE_ID, meta_data_);
+      return extent_index * BITMAP_SIZE + offset;
+    }
+  }
+  
+  //==============新开一页===============
+  uint32_t new_index = pm->GetExtentNums();
+  // meta data 更新 （写回在最后，让所有write集中一点？)
+  pm->extent_used_page_[new_index] = 0;
+  pm->num_extents_++;
+  pm->num_allocated_pages_++;
+  pm->extent_used_page_[new_index]++;
+  
+  // 新开BITMAP_SIZE+1页（位图+数据）（先设为全0）
+  page_id_t new_phy_bitmap_addr = META_PAGE_ID + 1 + new_index * (1 + BITMAP_SIZE);
+  char zero[PAGE_SIZE] = {0};
+  WritePhysicalPage(new_phy_bitmap_addr, zero);
+  for (uint32_t i = 1; i <= BITMAP_SIZE; i++) {
+    WritePhysicalPage(new_phy_bitmap_addr + i, zero);
+  }
+
+  // 空的，offset=0即可
+  auto *new_pb = reinterpret_cast<BitmapPage<PAGE_SIZE> *>(zero);
+  offset = 0;
+  new_pb->AllocatePage(offset);
+  WritePhysicalPage(new_phy_bitmap_addr, zero);
+
+  // 更新 meta data
+  
+  WritePhysicalPage(META_PAGE_ID, meta_data_);
+  return new_index * BITMAP_SIZE + offset;
 }
 
 /**
- * TODO: Student Implement
+ * Zat Implement
  */
 void DiskManager::DeAllocatePage(page_id_t logical_page_id) {
-  ASSERT(false, "Not implemented yet.");
+  std::scoped_lock lock(db_io_latch_);
+  auto *pm = reinterpret_cast<DiskFileMetaPage *>(meta_data_);
+
+  page_id_t extent_index  = logical_page_id / BITMAP_SIZE;
+  page_id_t extent_offset = logical_page_id % BITMAP_SIZE;
+
+  if (extent_index >= pm->GetExtentNums()) return;
+
+  // 访问相应bitmap
+  page_id_t phy_bitmap_addr = META_PAGE_ID + 1 + extent_index * (1 + BITMAP_SIZE);
+  char bitmap_buffer[PAGE_SIZE];
+  ReadPhysicalPage(phy_bitmap_addr, bitmap_buffer);
+  auto *pb = reinterpret_cast<BitmapPage<PAGE_SIZE> *>(bitmap_buffer);
+
+  // 尝试deallocate
+  if (pb->DeAllocatePage(extent_offset)) {
+    pm->num_allocated_pages_--;
+    pm->extent_used_page_[extent_index]--;
+    WritePhysicalPage(META_PAGE_ID, meta_data_);
+    WritePhysicalPage(phy_bitmap_addr, bitmap_buffer);
+  }
 }
 
 /**
- * TODO: Student Implement
+ * Zat Implement
  */
 bool DiskManager::IsPageFree(page_id_t logical_page_id) {
-  return false;
+  std::scoped_lock lock(db_io_latch_);
+  auto *pm = reinterpret_cast<DiskFileMetaPage *>(meta_data_);
+
+  page_id_t extent_index  = logical_page_id / BITMAP_SIZE;
+  page_id_t extent_offset = logical_page_id % BITMAP_SIZE;
+
+  if (extent_index >= pm->GetExtentNums()) return false;
+
+  // 访问bitmap
+  page_id_t phy_bitmap_addr = META_PAGE_ID + 1 + extent_index * (1 + BITMAP_SIZE);
+  char bitmap_buffer[PAGE_SIZE];
+  ReadPhysicalPage(phy_bitmap_addr, bitmap_buffer);
+  auto *pb = reinterpret_cast<BitmapPage<PAGE_SIZE> *>(bitmap_buffer);
+  return pb->IsPageFree(extent_offset);
 }
 
 /**
- * TODO: Student Implement
+ * Zat Implement
  */
 page_id_t DiskManager::MapPageId(page_id_t logical_page_id) {
-  return 0;
+  page_id_t Extent_index  = logical_page_id / BITMAP_SIZE;
+  page_id_t Extent_offset = logical_page_id % BITMAP_SIZE;
+  return 1 + Extent_index * (1 + BITMAP_SIZE) + Extent_offset;
 }
 
 int DiskManager::GetFileSize(const std::string &file_name) {
