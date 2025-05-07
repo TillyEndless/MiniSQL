@@ -4,6 +4,7 @@
 #include <list>
 #include <mutex>
 #include <unordered_set>
+#include <unordered_map> //set不知道怎么好用反正map一定好用
 #include <vector>
 
 #include "buffer/replacer.h"
@@ -36,7 +37,11 @@ class LRUReplacer : public Replacer {
   size_t Size() override;
 
 private:
-  // add your own private member variables here
+  // 用链表+哈希表实现
+  size_t max_capacity;
+  std::list<frame_id_t>lru_list;
+  std::unordered_map<frame_id_t,std::list<frame_id_t>::iterator>lru_map;
+  std::recursive_mutex latch_;//遇事不决先上锁了
 };
 
 #endif  // MINISQL_LRU_REPLACER_H
