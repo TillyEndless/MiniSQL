@@ -53,6 +53,7 @@ void DiskManager::WritePage(page_id_t logical_page_id, const char *page_data) {
  */
 page_id_t DiskManager::AllocatePage() {
   std::scoped_lock lock(db_io_latch_);
+  ReadPhysicalPage(META_PAGE_ID, meta_data_);
   auto *pm = reinterpret_cast<DiskFileMetaPage *>(meta_data_);
   uint32_t offset;
 
@@ -159,7 +160,8 @@ bool DiskManager::IsPageFree(page_id_t logical_page_id) {
 page_id_t DiskManager::MapPageId(page_id_t logical_page_id) {
   page_id_t Extent_index  = logical_page_id / BITMAP_SIZE;
   page_id_t Extent_offset = logical_page_id % BITMAP_SIZE;
-  return 1 + Extent_index * (1 + BITMAP_SIZE) + Extent_offset;
+  page_id_t phy_bitmap = META_PAGE_ID + 1 + Extent_index * (1 + BITMAP_SIZE);
+  return phy_bitmap + 1 + Extent_offset; //在位图页的基础上 移一页（bitmap） 再加 offset
 }
 
 int DiskManager::GetFileSize(const std::string &file_name) {

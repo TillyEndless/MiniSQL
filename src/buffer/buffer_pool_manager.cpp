@@ -21,57 +21,168 @@ BufferPoolManager::~BufferPoolManager() {
   delete[] pages_;
   delete replacer_;
 }
-
 /**
- * TODO: Student Implement
+ * Zat Implement
+ * free_list first
+ * then replacer
+ * return INVALID_FRAME_ID if fail
+ */
+frame_id_t BufferPoolManager::TryToFindFreePage() {
+  frame_id_t frame_ = INVALID_FRAME_ID;
+  if(!free_list_.empty()){
+    frame_ = free_list_.front();
+    free_list_.pop_front();
+  }
+  // LRU 换一个
+  else {
+    frame_id_t replace_frame_id;
+    if(replacer_->Victim(&replace_frame_id)) //有得换
+      frame_ = replace_frame_id;
+  }
+  return frame_;
+}
+/**
+ * Zat Implement
  */
 Page *BufferPoolManager::FetchPage(page_id_t page_id) {
+  std::lock_guard<std::recursive_mutex> guard(latch_);
   // 1.     Search the page table for the requested page (P).
   // 1.1    If P exists, pin it and return it immediately.
+  auto it = page_table_.find(page_id);
+  if(it != page_table_.end()){
+    pages_[it->second].pin_count_++;
+    replacer_->Pin(it->second);
+    return &pages_[it->second];
+  }
   // 1.2    If P does not exist, find a replacement page (R) from either the free list or the replacer.
   //        Note that pages are always found from the free list first.
-  // 2.     If R is dirty, write it back to the disk.
-  // 3.     Delete R from the page table and insert P.
-  // 4.     Update P's metadata, read in the page content from disk, and then return a pointer to P.
-  return nullptr;
+  else {
+    frame_id_t frame_ = TryToFindFreePage();
+
+    if(frame_ == INVALID_FRAME_ID) return nullptr;
+    // 2.     If R is dirty, write it back to the disk.
+    // 3.     Delete R from the page table and insert P.
+    if(pages_[frame_].page_id_ != INVALID_PAGE_ID) {
+      if(pages_[frame_].IsDirty())
+        disk_manager_->WritePage(pages_[frame_].page_id_, pages_[frame_].data_);
+      page_table_.erase(pages_[frame_].page_id_);    
+    }
+
+    page_table_[page_id] = frame_;
+    // 4.     Update P's metadata, read in the page content from disk, and then return a pointer to P.
+    disk_manager_->ReadPage(page_id,pages_[frame_].data_);
+    pages_[frame_].pin_count_ = 1;
+    pages_[frame_].page_id_ = page_id;
+    pages_[frame_].is_dirty_ = false;
+
+    replacer_->Pin(frame_);
+    return &pages_[frame_];
+  }
 }
 
 /**
- * TODO: Student Implement
+ * Zat Implement
  */
 Page *BufferPoolManager::NewPage(page_id_t &page_id) {
+  std::lock_guard<std::recursive_mutex> guard(latch_);
   // 0.   Make sure you call AllocatePage!
+  page_id = disk_manager_->AllocatePage();
+  
   // 1.   If all the pages in the buffer pool are pinned, return nullptr.
+  if(page_id == INVALID_PAGE_ID) return nullptr;
+
   // 2.   Pick a victim page P from either the free list or the replacer. Always pick from the free list first.
+  
+  frame_id_t frame_ = TryToFindFreePage();
+
+  //没地方放的话要回收这个新开的页
+  if(frame_ == INVALID_FRAME_ID) {
+    disk_manager_->DeAllocatePage(page_id);
+    return nullptr;
+  }
+
+  //清除替换页
+  if(pages_[frame_].page_id_ != INVALID_PAGE_ID) {
+    if(pages_[frame_].IsDirty())
+      disk_manager_->WritePage(pages_[frame_].page_id_, pages_[frame_].data_);
+    page_table_.erase(pages_[frame_].page_id_);    
+  }
+  
+  
   // 3.   Update P's metadata, zero out memory and add P to the page table.
+  pages_[frame_].ResetMemory();
+  pages_[frame_].pin_count_ = 1;
+  pages_[frame_].is_dirty_ = true; //是否应该这么处理存疑 [by zat]
+  pages_[frame_].page_id_ = page_id;
+  page_table_[page_id] = frame_;
+  replacer_->Pin(frame_);
   // 4.   Set the page ID output parameter. Return a pointer to P.
-  return nullptr;
+  return &pages_[frame_];
 }
 
 /**
  * TODO: Student Implement
  */
 bool BufferPoolManager::DeletePage(page_id_t page_id) {
-  // 0.   Make sure you call DeallocatePage!
+  std::lock_guard<std::recursive_mutex> guard(latch_);
+
   // 1.   Search the page table for the requested page (P).
   // 1.   If P does not exist, return true.
+  auto it = page_table_.find(page_id);
+  if (it == page_table_.end()) return true;
+  
   // 2.   If P exists, but has a non-zero pin-count, return false. Someone is using the page.
+  if(pages_[it->second].pin_count_ != 0) return false;
+  
   // 3.   Otherwise, P can be deleted. Remove P from the page table, reset its metadata and return it to the free list.
-  return false;
+  pages_[it->second].pin_count_ = 0;
+  pages_[it->second].page_id_ = INVALID_PAGE_ID;
+  pages_[it->second].is_dirty_ = 0;
+
+  replacer_->Pin(it->second); // 防止它进lru_list
+
+  free_list_.push_back(it->second);
+  page_table_.erase(it);
+
+  // 0.   Make sure you call DeallocatePage!
+  disk_manager_->DeAllocatePage(page_id); // 虽然是0但是应该是后面检查完了确实能删除再de allocate
+  return true;
 }
 
 /**
- * TODO: Student Implement
+ * Zat Implement
  */
 bool BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty) {
-  return false;
+  std::lock_guard<std::recursive_mutex> guard(latch_);
+  
+  auto it = page_table_.find(page_id);
+  if (it == page_table_.end()) return false;
+
+  frame_id_t frame_ = it->second;
+
+  if (pages_[frame_].pin_count_ <= 0) return false;
+
+  // 这个参数个人理解为由进程告诉manager进程中是否修改了page
+  if (is_dirty) pages_[frame_].is_dirty_ = true;
+
+  pages_[frame_].pin_count_--;
+  if (pages_[frame_].pin_count_ == 0) replacer_->Unpin(frame_);
+
+  return true;
 }
 
 /**
- * TODO: Student Implement
+ * Zat Implement
  */
 bool BufferPoolManager::FlushPage(page_id_t page_id) {
-  return false;
+  std::lock_guard<std::recursive_mutex> guard(latch_);
+  auto it = page_table_.find(page_id);
+  if(it == page_table_.end()) return false; // 不知道这里t/f的作用是什么 [by zat]
+
+  //需要写回
+  disk_manager_->WritePage(pages_[it->second].page_id_,pages_[it->second].GetData());
+  pages_[it->second].is_dirty_ = false;
+  return true;
 }
 
 page_id_t BufferPoolManager::AllocatePage() {
