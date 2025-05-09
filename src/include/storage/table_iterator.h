@@ -11,8 +11,9 @@ class TableIterator {
 public:
  // you may define your own constructor based on your member variables
  explicit TableIterator(TableHeap *table_heap, RowId rid, Txn *txn);
-
- explicit TableIterator(const TableIterator &other);
+ 
+ // 实现方便把这个的explicit删掉了，如果有问题再说 [by zat]
+ TableIterator(const TableIterator &other);
 
   virtual ~TableIterator();
 
@@ -32,6 +33,10 @@ public:
 
 private:
   // add your own private member variables here
+  TableHeap *table_heap_;
+  Txn       *txn_;
+  Row       current_row_;
+  RowId     current_rid_;
 };
 
 #endif  // MINISQL_TABLE_ITERATOR_H
