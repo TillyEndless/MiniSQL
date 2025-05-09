@@ -36,25 +36,84 @@ Column::Column(const Column *other)
       unique_(other->unique_) {}
 
 /**
-* TODO: Student Implement
+* Zat Implement
+* 参照column类中声明顺序写的
 */
 uint32_t Column::SerializeTo(char *buf) const {
-  // replace with your code here
-  return 0;
+  uint32_t offset = 0;
+
+  MACH_WRITE_UINT32(buf + offset, COLUMN_MAGIC_NUM);
+  offset += sizeof(uint32_t);
+
+  uint32_t name_length = static_cast<uint32_t>(name_.length());
+  MACH_WRITE_UINT32(buf + offset, name_length);
+  offset += sizeof(uint32_t);
+  MACH_WRITE_STRING(buf + offset, name_);
+  offset += name_length;
+
+  MACH_WRITE_UINT32(buf + offset, static_cast<uint32_t>(type_));
+  offset += sizeof(uint32_t);
+
+  MACH_WRITE_UINT32(buf + offset, len_);
+  offset += sizeof(uint32_t);
+
+  MACH_WRITE_UINT32(buf + offset, table_ind_);
+  offset += sizeof(uint32_t);
+
+  // 没有写bool的宏，照着抄两个
+  *reinterpret_cast<bool *>(buf + offset) = nullable_;
+  offset += sizeof(bool);
+
+  *reinterpret_cast<bool *>(offset) = unique_;
+  offset += sizeof(bool);
+
+  return offset;
 }
 
 /**
  * TODO: Student Implement
  */
 uint32_t Column::GetSerializedSize() const {
-  // replace with your code here
-  return 0;
+  return static_cast<uint32_t>(5*sizeof(uint32_t) + 2*sizeof(bool) + name_.length());
 }
 
 /**
- * TODO: Student Implement
+ * Zat Implement
  */
 uint32_t Column::DeserializeFrom(char *buf, Column *&column) {
-  // replace with your code here
-  return 0;
+  if (column != nullptr) {
+    LOG(WARNING) << "Pointer to column is not null in column deserialize." 									 << std::endl;
+  }
+
+  uint32_t offset = 0;
+  uint32_t magic_number = MACH_READ_UINT32(buf + offset);
+  CHECK(magic_number == COLUMN_MAGIC_NUM) << "Column magic mismatch";
+  offset += sizeof(uint32_t);
+
+  uint32_t name_length = MACH_READ_UINT32(buf + offset);
+  offset += sizeof(uint32_t);
+  std::string name_(buf + offset, name_length);
+  offset += name_length;
+
+  TypeId type_ = static_cast<TypeId>(MACH_READ_UINT32(buf + offset));
+  offset += sizeof(uint32_t);
+
+  uint32_t len_ = MACH_READ_UINT32(buf + offset);
+  offset += sizeof(uint32_t);
+
+  uint32_t table_ind_ = MACH_READ_UINT32(buf + offset);
+  offset += sizeof(uint32_t);
+
+  uint32_t nullable_ = *reinterpret_cast<bool *>(buf + offset);
+  offset += sizeof(bool);
+
+  uint32_t unique_ = *reinterpret_cast<bool *>(offset);
+  offset += sizeof(bool);
+  
+  if( type_ == TypeId::kTypeChar) 
+    column = new Column(name_, type_, len_, table_ind_, nullable_, unique_);
+  else 
+    column = new Column(name_,type_,table_ind_, nullable_, unique_);
+  
+  return offset;
 }
