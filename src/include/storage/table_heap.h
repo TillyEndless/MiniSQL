@@ -113,7 +113,17 @@ class TableHeap {
         schema_(schema),
         log_manager_(log_manager),
         lock_manager_(lock_manager) {
-    ASSERT(false, "Not implemented yet.");
+    page_id_t new_page_id;
+    Page *raw_page = buffer_pool_manager_->NewPage(new_page_id);
+    ASSERT(raw_page != nullptr, "TableHeap ctor: failed to allocate first page");  
+
+    first_page_id_ = new_page_id;
+
+    auto table_page = reinterpret_cast<TablePage *>(raw_page);
+
+    table_page->Init(new_page_id, INVALID_PAGE_ID, log_manager_, txn);
+
+    buffer_pool_manager_->UnpinPage(new_page_id, /*is_dirty=*/true);
   };
 
   explicit TableHeap(BufferPoolManager *buffer_pool_manager, page_id_t first_page_id, Schema *schema,
