@@ -58,7 +58,7 @@ uint32_t CatalogMeta::GetSerializedSize() const {
   return 12 + table_meta_pages_.size() * 8 + index_meta_pages_.size() * 8;
 }
 
-CatalogMeta::CatalogMeta() {}
+// CatalogMeta::CatalogMeta() {}
 
 /**
  * Zat Implement
