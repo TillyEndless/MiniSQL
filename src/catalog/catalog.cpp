@@ -52,22 +52,73 @@ CatalogMeta *CatalogMeta::DeserializeFrom(char *buf) {
 }
 
 /**
- * TODO: Student Implement
+ * Zat Implement
  */
 uint32_t CatalogMeta::GetSerializedSize() const {
-  ASSERT(false, "Not Implemented yet");
-  return 0;
+  return 12 + table_meta_pages_.size() * 8 + index_meta_pages_.size() * 8;
 }
 
 CatalogMeta::CatalogMeta() {}
 
 /**
- * TODO: Student Implement
+ * Zat Implement
  */
 CatalogManager::CatalogManager(BufferPoolManager *buffer_pool_manager, LockManager *lock_manager,
                                LogManager *log_manager, bool init)
     : buffer_pool_manager_(buffer_pool_manager), lock_manager_(lock_manager), log_manager_(log_manager) {
-//    ASSERT(false, "Not Implemented yet");
+  //  ASSERT(false, "Not Implemented yet");
+    if(init) {
+      page_id_t pid; 
+      Page *meta_page = buffer_pool_manager_->NewPage(pid);
+      ASSERT(pid == CATALOG_META_PAGE_ID, "catalog_meta should be placed in page 0");
+      catalog_meta_ = reinterpret_cast<CatalogMeta *>(meta_page->GetData());
+      catalog_meta_->NewInstance();
+      next_table_id_ = catalog_meta_->GetNextTableId();
+      next_index_id_ = catalog_meta_->GetNextIndexId();
+      buffer_pool_manager_->UnpinPage(pid, true);
+    }
+    else {
+      // 从文件中薅数据
+      Page *meta_page = buffer_pool_manager_->FetchPage(CATALOG_META_PAGE_ID);
+      catalog_meta_   = reinterpret_cast<CatalogMeta *>(meta_page->GetData());
+      ASSERT(catalog_meta_ != nullptr, "Not init but can't fetch catalog meta page!");
+      next_table_id_ = catalog_meta_->GetNextTableId();
+      next_index_id_ = catalog_meta_->GetNextIndexId();
+      
+      for(auto pair_ : catalog_meta_->table_meta_pages_) {
+        auto table_id = pair_.first;
+        auto page_id  = pair_.second;
+        auto table_page = buffer_pool_manager_->FetchPage(page_id);
+        TableMetadata *table_metadata = nullptr;
+        TableMetadata::DeserializeFrom(table_page->GetData(),table_metadata);
+        buffer_pool_manager_->UnpinPage(page_id,false);
+        auto table_name = table_metadata->GetTableName();
+        auto first_page_id = table_metadata->GetFirstPageId();
+        table_names_[table_name] = table_id;
+        TableInfo *table_info = TableInfo::Create();
+        TableHeap *table_heap = TableHeap::Create(buffer_pool_manager_,first_page_id,table_metadata->GetSchema(),log_manager_,lock_manager_);
+        table_info->Init(table_metadata,table_heap);
+        tables_[table_id] = table_info;
+      }
+      for(auto pair_ : catalog_meta_->index_meta_pages_) {
+        auto index_id = pair_.first;
+        auto page_id  = pair_.second;        
+        auto index_page = buffer_pool_manager_->FetchPage(page_id);
+        IndexMetadata *index_metadata = nullptr;
+        IndexMetadata::DeserializeFrom(index_page->GetData(),index_metadata);
+        buffer_pool_manager_->UnpinPage(page_id,false);
+        auto index_name = index_metadata->GetIndexName();
+        auto table_id   = index_metadata->GetTableId();
+        auto table_name = tables_[table_id]->GetTableName();
+        index_names_[table_name][index_name] = index_id;
+        IndexInfo *index_info = IndexInfo::Create();
+        TableInfo *table_info = tables_[table_id];
+        index_info->Init(index_metadata,table_info,buffer_pool_manager_);
+        indexes_[index_id] = index_info;
+      }
+
+      buffer_pool_manager_->UnpinPage(CATALOG_META_PAGE_ID,false);
+    }
 }
 
 CatalogManager::~CatalogManager() {
@@ -82,11 +133,49 @@ CatalogManager::~CatalogManager() {
 }
 
 /**
- * TODO: Student Implement
+ * Zat Implement
  */
 dberr_t CatalogManager::CreateTable(const string &table_name, TableSchema *schema, Txn *txn, TableInfo *&table_info) {
   // ASSERT(false, "Not Implemented yet");
-  return DB_FAILED;
+  if(table_names_.find(table_name) != table_names_.end()) return DB_TABLE_ALREADY_EXIST;
+  ASSERT(table_info == nullptr, "create table with table info ptr not null!");
+  page_id_t table_first_page_id;
+  auto table_first_page = buffer_pool_manager_->NewPage(table_first_page_id);
+  if(table_first_page == nullptr) return DB_FAILED;
+
+  // 记得 unpin!
+  TableHeap *table_heap         = TableHeap::Create(buffer_pool_manager_,table_first_page_id,schema,log_manager_,lock_manager_);
+  page_id_t table_id            = next_table_id_.fetch_add(1);
+  TableMetadata *table_metadata = TableMetadata::Create(table_id,table_name,table_first_page_id,schema);
+
+  // 存metadata
+  page_id_t metadata_page_id;
+  auto table_metadata_page = buffer_pool_manager_->NewPage(metadata_page_id);
+  if(table_metadata_page == nullptr) {
+    //存不下metadata，那first page也扔了？
+    buffer_pool_manager_->UnpinPage(table_first_page_id,false);
+    buffer_pool_manager_->DeletePage(table_first_page_id);
+    return DB_FAILED;
+  }
+  auto buf = table_metadata_page->GetData();
+  table_metadata->SerializeTo(buf);
+  buffer_pool_manager_->UnpinPage(metadata_page_id,true);
+
+  table_info = TableInfo::Create();
+  table_info->Init(table_metadata,table_heap);
+
+  // 存那几个map
+  table_names_[table_name] = table_id;
+  tables_[table_id] = table_info;
+  catalog_meta_->table_meta_pages_[table_id] = metadata_page_id;
+
+  Page *catalog_page = buffer_pool_manager_->FetchPage(CATALOG_META_PAGE_ID);
+  catalog_meta_->SerializeTo(catalog_page->GetData());
+  buffer_pool_manager_->UnpinPage(CATALOG_META_PAGE_ID, true);
+
+  buffer_pool_manager_->UnpinPage(table_first_page_id,true);
+
+  return DB_SUCCESS;
 }
 
 /**

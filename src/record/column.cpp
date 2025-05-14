@@ -71,7 +71,7 @@ uint32_t Column::SerializeTo(char *buf) const {
 }
 
 /**
- * TODO: Student Implement
+ * Zat Implement
  */
 uint32_t Column::GetSerializedSize() const {
   return static_cast<uint32_t>(5*sizeof(uint32_t) + 2*sizeof(bool) + name_.length());

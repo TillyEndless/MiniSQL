@@ -61,13 +61,18 @@ class IndexInfo {
   }
 
 /**
- * TODO: Student Implement
+ * Zat Implement
  */
   void Init(IndexMetadata *meta_data, TableInfo *table_info, BufferPoolManager *buffer_pool_manager) {
     // Step1: init index metadata and table info
+    meta_data_ = meta_data; 
+    //我看没存table info ? [by zat]
     // Step2: mapping index key to key schema
+    
+    key_schema_ = Schema::ShallowCopySchema(table_info->GetSchema(),meta_data->GetKeyMapping());
+
     // Step3: call CreateIndex to create the index
-    ASSERT(false, "Not Implemented yet.");
+    index_ = CreateIndex(buffer_pool_manager,"bptree");
   }
 
   inline Index *GetIndex() { return index_; }

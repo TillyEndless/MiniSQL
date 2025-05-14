@@ -40,10 +40,10 @@ uint32_t IndexMetadata::SerializeTo(char *buf) const {
 }
 
 /**
- * TODO: Student Implement
+ * Zat Implement
  */
 uint32_t IndexMetadata::GetSerializedSize() const {
-  return 0;
+  return 20 + index_name_.length() + 4 * key_map_.size();
 }
 
 uint32_t IndexMetadata::DeserializeFrom(char *buf, IndexMetadata *&index_meta) {
