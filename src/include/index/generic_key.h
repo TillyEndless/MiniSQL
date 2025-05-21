@@ -16,6 +16,9 @@ class KeyManager {
   [[nodiscard]] inline GenericKey *InitKey() const {
     return (GenericKey *)malloc(key_size_);  // remember delete
   }
+  inline void CopyKey(const GenericKey *src, GenericKey *dest) const {
+    memcpy(dest->data, src->data, key_size_);
+  }
 
   inline void SerializeFromKey(GenericKey *key_buf, const Row &key, Schema *schema) const {
     // initialize to 0

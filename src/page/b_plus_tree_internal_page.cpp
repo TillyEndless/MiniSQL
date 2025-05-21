@@ -72,19 +72,24 @@ void InternalPage::PairCopy(void *dest, void *src, int pair_num) {
  * 用了二分查找
  */
 page_id_t InternalPage::Lookup(const GenericKey *key, const KeyManager &KM) {
-    page_id_t left = 0, right = GetSize() -1;
-    page_id_t mid;
-    while(left < right){
-        mid = (left + right)/2;
-        if(int cmp = KM.CompareKeys(KeyAt(mid)), key){
-            left = mid +1;
-        }else{
-            right = mid - 1;
-        }
+  int left = 1;                        // Skip dummy key at index 0
+  int right = GetSize() - 1;
+  int mid;
+
+  while (left <= right) {
+    mid = (left + right) / 2;
+    int cmp = KM.CompareKeys(KeyAt(mid), key);
+    if (cmp <= 0) {
+      left = mid + 1;
+    } else {
+      right = mid - 1;
     }
-  if(left == right)return left;
-  else return INVALID_PAGE_ID;
+  }
+
+  // Now `left` is the smallest i s.t. key < KeyAt(i), so we return ValueAt(left - 1)
+  return ValueAt(left - 1);
 }
+
 
 /*****************************************************************************
  * INSERTION
@@ -96,7 +101,7 @@ page_id_t InternalPage::Lookup(const GenericKey *key, const KeyManager &KM) {
  * NOTE: This method is only called within InsertIntoParent()(b_plus_tree.cpp)
  */
 void InternalPage::PopulateNewRoot(const page_id_t &old_value, GenericKey *new_key, const page_id_t &new_value) {
-  page_id_t root_page_id = BufferPoolManager::NewPage();
+  //page_id_t root_page_id = BufferPoolManager::NewPage();
      // Set the size to 2 (two child pointers, one key)
       SetSize(2);
 
@@ -107,6 +112,7 @@ void InternalPage::PopulateNewRoot(const page_id_t &old_value, GenericKey *new_k
       SetKeyAt(1, new_key);
       SetValueAt(1, new_value);
 }
+
 
 /*
  * Insert new_key & new_value pair right after the pair with its value ==
@@ -164,7 +170,7 @@ void InternalPage::CopyNFrom(void *src, int size, BufferPoolManager *buffer_pool
     IncreaseSize(size);
 
     for(int i = 0; i < size; ++i){ // 修改每个被移动子节点的 parent_page_id 为当前
-        page_id_t child_pid = *reinterpret_cast<page_id_t *>(reinterpret_cast<char*>(src) + i * page_size + GetKeySize());
+        page_id_t child_pid = *reinterpret_cast<page_id_t *>(reinterpret_cast<char*>(src) + i * pair_size + GetKeySize());
 
         Page *child_page = buffer_pool_manager->FetchPage(child_pid);//获取该子节点页
         if(child_page == nullptr){
