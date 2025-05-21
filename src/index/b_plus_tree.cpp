@@ -26,8 +26,9 @@ void BPlusTree::Destroy(page_id_t current_page_id) {
  * Helper function to decide whether current b+tree is empty
  */
 bool BPlusTree::IsEmpty() const {
-  return false;
+  return root_page_id_ == INVALID_PAGE_ID;
 }
+
 
 /*****************************************************************************
  * SEARCH
@@ -37,7 +38,27 @@ bool BPlusTree::IsEmpty() const {
  * This method is used for point query
  * @return : true means key exists
  */
-bool BPlusTree::GetValue(const GenericKey *key, std::vector<RowId> &result, Txn *transaction) { return false; }
+bool BPlusTree::GetValue(const GenericKey *key, std::vector<RowId> &result, Txn *transaction) {
+  if (IsEmpty()) {
+    return false;
+  }
+
+  Page *leaf_page = FindLeafPage(key, root_page_id_, false);
+  if (leaf_page == nullptr) {
+    return false;
+  }
+
+  auto *leaf = reinterpret_cast<LeafPage *>(leaf_page->GetData());
+  RowId value;
+  bool found = leaf->Lookup(key, value, processor_);
+
+  if (found) {
+    result.push_back(value);
+  }
+
+  buffer_pool_manager_->UnpinPage(leaf->GetPageId(), false);
+  return found;
+}
 
 /*****************************************************************************
  * INSERTION
@@ -49,14 +70,34 @@ bool BPlusTree::GetValue(const GenericKey *key, std::vector<RowId> &result, Txn 
  * @return: since we only support unique key, if user try to insert duplicate
  * keys return false, otherwise return true.
  */
-bool BPlusTree::Insert(GenericKey *key, const RowId &value, Txn *transaction) { return false; }
+bool BPlusTree::Insert(GenericKey *key, const RowId &value, Txn *transaction) {
+  if (IsEmpty()) {
+    StartNewTree(key, value);
+    return true;
+  }
+  return InsertIntoLeaf(key, value, transaction);
+}
+
 /*
  * Insert constant key & value pair into an empty tree
  * User needs to first ask for new page from buffer pool manager(NOTICE: throw
  * an "out of memory" exception if returned value is nullptr), then update b+
  * tree's root page id and insert entry directly into leaf page.
  */
-void BPlusTree::StartNewTree(GenericKey *key, const RowId &value) {}
+void BPlusTree::StartNewTree(GenericKey *key, const RowId &value) {
+  Page *page = buffer_pool_manager_->NewPage(root_page_id_);
+  if (page == nullptr) {
+    throw std::runtime_error("StartNewTree failed: out of memory.");
+  }
+
+  auto *leaf = reinterpret_cast<LeafPage *>(page->GetData());
+  leaf->Init(root_page_id_, INVALID_PAGE_ID, processor_.GetKeySize(), leaf_max_size_);
+  leaf->Insert(key, value, processor_);
+
+  UpdateRootPageId(true);  // 插入 header page 中
+  buffer_pool_manager_->UnpinPage(root_page_id_, true);  // 脏页
+}
+
 
 /*
  * Insert constant key & value pair into leaf page
@@ -66,7 +107,27 @@ void BPlusTree::StartNewTree(GenericKey *key, const RowId &value) {}
  * @return: since we only support unique key, if user try to insert duplicate
  * keys return false, otherwise return true.
  */
-bool BPlusTree::InsertIntoLeaf(GenericKey *key, const RowId &value, Txn *transaction) { return false; }
+bool BPlusTree::InsertIntoLeaf(GenericKey *key, const RowId &value, Txn *transaction) {
+  Page *page = FindLeafPage(key, root_page_id_, false);
+  auto *leaf = reinterpret_cast<LeafPage *>(page->GetData());
+
+  RowId existing;
+  if (leaf->Lookup(key, existing, processor_)) {
+    buffer_pool_manager_->UnpinPage(leaf->GetPageId(), false);
+    return false;
+  }
+
+  leaf->Insert(key, value, processor_);
+  if (leaf->GetSize() > leaf->GetMaxSize()) {
+    auto *new_leaf = Split(leaf, transaction);
+    GenericKey *split_key = new GenericKey[processor_.GetKeySize()];
+    processor_.CopyKey(leaf->KeyAt(leaf->GetSize() - 1), split_key);
+    InsertIntoParent(leaf, split_key, new_leaf, transaction);
+  }
+
+  buffer_pool_manager_->UnpinPage(leaf->GetPageId(), true);
+  return true;
+}
 
 /*
  * Split input page and return newly created page.
@@ -75,9 +136,37 @@ bool BPlusTree::InsertIntoLeaf(GenericKey *key, const RowId &value, Txn *transac
  * an "out of memory" exception if returned value is nullptr), then move half
  * of key & value pairs from input page to newly created page
  */
-BPlusTreeInternalPage *BPlusTree::Split(InternalPage *node, Txn *transaction) { return nullptr; }
+BPlusTreeInternalPage *BPlusTree::Split(InternalPage *node, Txn *transaction) {
+  page_id_t new_pid;
+  Page *new_page = buffer_pool_manager_->NewPage(new_pid);
+  if (new_page == nullptr) {
+    throw std::runtime_error("Out of memory during internal node split");
+  }
 
-BPlusTreeLeafPage *BPlusTree::Split(LeafPage *node, Txn *transaction) { return nullptr; }
+  auto *new_node = reinterpret_cast<InternalPage *>(new_page->GetData());
+  new_node->Init(new_pid, node->GetParentPageId(), processor_.GetKeySize(), internal_max_size_);
+  node->MoveHalfTo(new_node, buffer_pool_manager_);
+  buffer_pool_manager_->UnpinPage(new_pid, true);
+  return new_node;
+}
+
+BPlusTreeLeafPage *BPlusTree::Split(LeafPage *leaf, Txn *transaction) {
+  page_id_t new_page_id;
+  Page *new_page = buffer_pool_manager_->NewPage(new_page_id);
+  if (new_page == nullptr) {
+    throw std::runtime_error("Out of memory during Split");
+  }
+
+  auto *new_leaf = reinterpret_cast<LeafPage *>(new_page->GetData());
+  new_leaf->Init(new_page_id, leaf->GetParentPageId(), processor_.GetKeySize(), leaf_max_size_);
+
+  leaf->MoveHalfTo(new_leaf);
+  new_leaf->SetNextPageId(leaf->GetNextPageId());
+  leaf->SetNextPageId(new_leaf->GetPageId());
+
+  buffer_pool_manager_->UnpinPage(new_page_id, true);
+  return new_leaf;
+}
 
 /*
  * Insert key & value pair into internal page after split
@@ -88,7 +177,41 @@ BPlusTreeLeafPage *BPlusTree::Split(LeafPage *node, Txn *transaction) { return n
  * adjusted to take info of new_node into account. Remember to deal with split
  * recursively if necessary.
  */
-void BPlusTree::InsertIntoParent(BPlusTreePage *old_node, GenericKey *key, BPlusTreePage *new_node, Txn *transaction) {}
+void BPlusTree::InsertIntoParent(BPlusTreePage *old_node, GenericKey *key, BPlusTreePage *new_node, Txn *transaction) {
+  if (old_node->IsRootPage()) {
+    page_id_t new_root_page_id;
+    Page *new_root_page = buffer_pool_manager_->NewPage(new_root_page_id);
+    if (new_root_page == nullptr) {
+      throw std::runtime_error("Out of memory creating new root");
+    }
+
+    auto *new_root = reinterpret_cast<InternalPage *>(new_root_page->GetData());
+    new_root->Init(new_root_page_id, INVALID_PAGE_ID, processor_.GetKeySize(), internal_max_size_);
+    new_root->PopulateNewRoot(old_node->GetPageId(), key, new_node->GetPageId());
+    old_node->SetParentPageId(new_root_page_id);
+    new_node->SetParentPageId(new_root_page_id);
+    root_page_id_ = new_root_page_id;
+    buffer_pool_manager_->UnpinPage(new_root_page_id, true);
+    UpdateRootPageId(false);
+    return;
+  }
+
+  page_id_t parent_id = old_node->GetParentPageId();
+  Page *parent_page = buffer_pool_manager_->FetchPage(parent_id);
+  auto *parent = reinterpret_cast<InternalPage *>(parent_page->GetData());
+
+  parent->InsertNodeAfter(old_node->GetPageId(), key, new_node->GetPageId());
+  new_node->SetParentPageId(parent_id);
+
+  if (parent->GetSize() > parent->GetMaxSize()) {
+    auto *new_internal = Split(parent, transaction);
+    GenericKey *mid_key = new GenericKey[processor_.GetKeySize()];
+    processor_.CopyKey(parent->KeyAt(parent->GetSize() - 1), mid_key);
+    InsertIntoParent(parent, mid_key, new_internal, transaction);
+  }
+
+  buffer_pool_manager_->UnpinPage(parent_id, true);
+}
 
 /*****************************************************************************
  * REMOVE
@@ -171,8 +294,11 @@ bool BPlusTree::AdjustRoot(BPlusTreePage *old_root_node) {
  * @return : index iterator
  */
 IndexIterator BPlusTree::Begin() {
-  return IndexIterator();
+  if (IsEmpty()) return End();
+  Page *leftmost_leaf = FindLeafPage(nullptr, root_page_id_, true);
+  return IndexIterator(leftmost_leaf->GetPageId(), buffer_pool_manager_, 0);
 }
+
 
 /*
  * Input parameter is low key, find the leaf page that contains the input key
@@ -180,7 +306,12 @@ IndexIterator BPlusTree::Begin() {
  * @return : index iterator
  */
 IndexIterator BPlusTree::Begin(const GenericKey *key) {
-   return IndexIterator();
+  if (IsEmpty()) return End();
+  Page *leaf_page = FindLeafPage(key, root_page_id_, false);
+  auto *leaf = reinterpret_cast<LeafPage *>(leaf_page->GetData());
+
+  int idx = leaf->KeyIndex(key, processor_);
+  return IndexIterator(leaf_page->GetPageId(), buffer_pool_manager_, idx);
 }
 
 /*
@@ -189,8 +320,9 @@ IndexIterator BPlusTree::Begin(const GenericKey *key) {
  * @return : index iterator
  */
 IndexIterator BPlusTree::End() {
-  return IndexIterator();
+  return IndexIterator(INVALID_PAGE_ID, buffer_pool_manager_, 0);
 }
+
 
 /*****************************************************************************
  * UTILITIES AND DEBUG
@@ -201,8 +333,31 @@ IndexIterator BPlusTree::End() {
  * Note: the leaf page is pinned, you need to unpin it after use.
  */
 Page *BPlusTree::FindLeafPage(const GenericKey *key, page_id_t page_id, bool leftMost) {
-  return nullptr;
+  if (IsEmpty()) return nullptr;
+
+  page_id_t current_pid = (page_id == INVALID_PAGE_ID) ? root_page_id_ : page_id;
+  Page *page = buffer_pool_manager_->FetchPage(current_pid);
+  auto *node = reinterpret_cast<BPlusTreePage *>(page->GetData());
+
+  while (!node->IsLeafPage()) {
+    auto *internal = reinterpret_cast<InternalPage *>(node);
+    page_id_t child_pid;
+
+    if (leftMost) {
+      child_pid = internal->ValueAt(0);
+    } else {
+      child_pid = internal->Lookup(key, processor_);
+    }
+
+    buffer_pool_manager_->UnpinPage(current_pid, false);
+    current_pid = child_pid;
+    page = buffer_pool_manager_->FetchPage(current_pid);
+    node = reinterpret_cast<BPlusTreePage *>(page->GetData());
+  }
+
+  return page;  // pinned: caller must unpin
 }
+
 
 /*
  * Update/Insert root page id in header page(where page_id = INDEX_ROOTS_PAGE_ID,
@@ -213,7 +368,21 @@ Page *BPlusTree::FindLeafPage(const GenericKey *key, page_id_t page_id, bool lef
  * updating it.
  */
 void BPlusTree::UpdateRootPageId(int insert_record) {
+  Page *header_page = buffer_pool_manager_->FetchPage(INDEX_ROOTS_PAGE_ID);
+  if (header_page == nullptr) {
+    throw std::runtime_error("Cannot fetch INDEX_ROOTS_PAGE");
+  }
+
+  auto *root_page = reinterpret_cast<IndexRootsPage *>(header_page->GetData());
+  if (insert_record == 1) {
+    root_page->Insert(index_id_, root_page_id_);
+  } else {
+    root_page->Update(index_id_, root_page_id_);
+  }
+
+  buffer_pool_manager_->UnpinPage(INDEX_ROOTS_PAGE_ID, true);
 }
+
 
 /**
  * This method is used for debug only, You don't need to modify
