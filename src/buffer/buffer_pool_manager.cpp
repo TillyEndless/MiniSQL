@@ -200,12 +200,16 @@ bool BufferPoolManager::IsPageFree(page_id_t page_id) {
 
 // Only used for debug
 bool BufferPoolManager::CheckAllUnpinned() {
+  LOG(INFO) << "*** BEGIN CheckAllUnpinned ***";
   bool res = true;
   for (size_t i = 0; i < pool_size_; i++) {
     if (pages_[i].pin_count_ != 0) {
       res = false;
-      LOG(ERROR) << "page " << pages_[i].page_id_ << " pin count:" << pages_[i].pin_count_ << endl;
+      // LOG(ERROR) << "page " << pages_[i].page_id_ << " pin count:" << pages_[i].pin_count_ << endl;
+      LOG(ERROR) << "!!! LEAKED PAGE: page_id=" << pages_[i].page_id_
+                 << " pin_count=" << pages_[i].pin_count_;
     }
   }
+  LOG(INFO) << "*** END CheckAllUnpinned ***";
   return res;
 }

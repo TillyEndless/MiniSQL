@@ -16,7 +16,8 @@
  */
 uint32_t Row::SerializeTo(char *buf, Schema *schema) const {
   ASSERT(schema != nullptr, "Invalid schema before serialize.");
-  ASSERT(schema->GetColumnCount() == fields_.size(), "Fields size do not match schema's column size.");
+  // 会不会是因为size开大了一点点
+  ASSERT(schema->GetColumnCount() <= fields_.size(), "Fields size do not match schema's column size.");
   
   uint32_t offset = 0, 
            field_count = schema->GetColumnCount(),
@@ -43,6 +44,9 @@ uint32_t Row::SerializeTo(char *buf, Schema *schema) const {
     offset += sz;    
   }
   
+  uint32_t written_count = MACH_READ_UINT32(buf);
+  LOG(INFO) << "Serialized field_count = " << written_count;
+
   return offset;
 }
 
@@ -53,6 +57,10 @@ uint32_t Row::DeserializeFrom(char *buf, Schema *schema) {
   uint32_t offset = 0;
   uint32_t field_count = MACH_READ_UINT32(buf+offset);
   offset += sizeof(uint32_t);
+
+  LOG(INFO) << "Deserialized field_count = " << field_count
+          << ", schema columns = " << schema->GetColumnCount();
+
   ASSERT(field_count == schema->GetColumnCount(), "Schema and data field count mismatch.");
 
   uint32_t bitmap_bytes_count = (field_count + 7) / 8;

@@ -141,10 +141,13 @@ bool DiskManager::IsPageFree(page_id_t logical_page_id) {
   std::scoped_lock lock(db_io_latch_);
   auto *pm = reinterpret_cast<DiskFileMetaPage *>(meta_data_);
 
+  if (pm->GetExtentNums() == 0) return true;
+
   page_id_t extent_index  = logical_page_id / BITMAP_SIZE;
   page_id_t extent_offset = logical_page_id % BITMAP_SIZE;
 
-  if (extent_index >= pm->GetExtentNums()) return false;
+  // 特判：GetExtentNums为0的时候要保证前两页为空，从而正确初始化
+  if (extent_index >= pm->GetExtentNums()) return false; // 没被建的页视为不空
 
   // 访问bitmap
   page_id_t phy_bitmap_addr = META_PAGE_ID + 1 + extent_index * (1 + BITMAP_SIZE);

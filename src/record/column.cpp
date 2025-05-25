@@ -64,7 +64,7 @@ uint32_t Column::SerializeTo(char *buf) const {
   *reinterpret_cast<bool *>(buf + offset) = nullable_;
   offset += sizeof(bool);
 
-  *reinterpret_cast<bool *>(offset) = unique_;
+  *reinterpret_cast<bool *>(buf + offset) = unique_;
   offset += sizeof(bool);
 
   return offset;
@@ -107,7 +107,7 @@ uint32_t Column::DeserializeFrom(char *buf, Column *&column) {
   uint32_t nullable_ = *reinterpret_cast<bool *>(buf + offset);
   offset += sizeof(bool);
 
-  uint32_t unique_ = *reinterpret_cast<bool *>(offset);
+  uint32_t unique_ = *reinterpret_cast<bool *>(buf + offset);
   offset += sizeof(bool);
   
   if( type_ == TypeId::kTypeChar) 
