@@ -44,8 +44,8 @@ uint32_t Row::SerializeTo(char *buf, Schema *schema) const {
     offset += sz;    
   }
   
-  // uint32_t written_count = MACH_READ_UINT32(buf);
-  // LOG(INFO) << "Serialized field_count = " << written_count;
+   uint32_t written_count = MACH_READ_UINT32(buf);
+   LOG(INFO) << "Serialized field_count = " << written_count;
 
   return offset;
 }
@@ -58,8 +58,8 @@ uint32_t Row::DeserializeFrom(char *buf, Schema *schema) {
   uint32_t field_count = MACH_READ_UINT32(buf+offset);
   offset += sizeof(uint32_t);
 
-  // LOG(INFO) << "Deserialized field_count = " << field_count
-  //         << ", schema columns = " << schema->GetColumnCount();
+   LOG(INFO) << "Deserialized field_count = " << field_count
+           << ", schema columns = " << schema->GetColumnCount();
 
   ASSERT(field_count == schema->GetColumnCount(), "Schema and data field count mismatch.");
 

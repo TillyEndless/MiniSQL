@@ -15,36 +15,43 @@ IndexIterator::~IndexIterator() {
     buffer_pool_manager->UnpinPage(current_page_id, false);
 }
 
-/**
- * TODO: Student Implement
- */
 std::pair<GenericKey *, RowId> IndexIterator::operator*() {
   return page->GetItem(item_index);
 }
 
-
-/**
- * TODO: Student Implement
- */
 IndexIterator &IndexIterator::operator++() {
-  item_index++;
+  // Increase the current item index
+  ++item_index;
 
+  // Check if we need to move to the next page
   if (item_index >= page->GetSize()) {
-    page_id_t next_id = page->GetNextPageId();
+    page_id_t next_page_id = page->GetNextPageId();
 
-    // 释放当前页
-    buffer_pool_manager->UnpinPage(current_page_id, false);
+    // If there is a next page
+    if (next_page_id != INVALID_PAGE_ID) {
+      // Unpin the current page
+      buffer_pool_manager->UnpinPage(current_page_id, false);
 
-    if (next_id == INVALID_PAGE_ID) {
-      // 到达末尾，标记为结束
+      // Move to the next page
+      current_page_id = next_page_id;
+      auto *next_page = buffer_pool_manager->FetchPage(next_page_id);
+
+      // If the next page is not null
+      if (next_page != nullptr) {
+        // Cast the data to a LeafPage pointer
+        auto *next_leaf_page = reinterpret_cast<LeafPage *>(next_page->GetData());
+
+        // Update the page pointer and reset the item index
+        page = next_leaf_page;
+        item_index = 0;
+      }
+    } else {
+      // If there is no next page, set the iterator to its default state
+      buffer_pool_manager->UnpinPage(current_page_id, false);
       current_page_id = INVALID_PAGE_ID;
       page = nullptr;
-    } else {
-      // 加载下一页
-      current_page_id = next_id;
-      Page *next_page = buffer_pool_manager->FetchPage(current_page_id);
-      page = reinterpret_cast<LeafPage *>(next_page->GetData());
       item_index = 0;
+      *this = IndexIterator();
     }
   }
 
