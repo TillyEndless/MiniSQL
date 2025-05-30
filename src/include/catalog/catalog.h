@@ -57,8 +57,7 @@ class CatalogMeta {
   }
 
  private:
-  // edited [by zat] 原来是空函数
-  CatalogMeta();//{ table_meta_pages_.clear(); index_meta_pages_.clear(); }
+  CatalogMeta();
 
  private:
   static constexpr uint32_t CATALOG_METADATA_MAGIC_NUM = 89849;

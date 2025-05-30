@@ -121,7 +121,7 @@ Page *BufferPoolManager::NewPage(page_id_t &page_id) {
 }
 
 /**
- * TODO: Student Implement
+ * Zat Implement
  */
 bool BufferPoolManager::DeletePage(page_id_t page_id) {
   std::lock_guard<std::recursive_mutex> guard(latch_);
