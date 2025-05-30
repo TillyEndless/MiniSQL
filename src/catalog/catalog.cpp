@@ -200,7 +200,6 @@ dberr_t CatalogManager::GetTables(vector<TableInfo *> &tables) const {
 
 /**
  * Zat Implement
- * 有问题！
  * 如果按照table_name找不到表返回 DB_TABLE_NOT_EXIST
  * 如果index已经存在返回DB_INDEX_ALREADY_EXIST
  * 否则修改index_info
@@ -476,89 +475,3 @@ dberr_t CatalogManager::GetTable(const table_id_t table_id, TableInfo *&table_in
   table_info = tables_[table_id];
   return DB_SUCCESS;
 }
-
-
-
-/**
- * TODO: Student Implement
- */
-// dberr_t CatalogManager::CreateTable(const string &table_name, TableSchema *schema, Txn *txn, TableInfo *&table_info) {
-//   if(table_names_.find(table_name)!=table_names_.end())
-//   {
-//     return DB_TABLE_ALREADY_EXIST;
-//   }
-//   table_id_t new_table_id=catalog_meta_->GetNextTableId();
-//   table_names_[table_name]=new_table_id;
-
-//   Schema* now_schema=Schema::DeepCopySchema(schema);
-//   page_id_t new_page_id;
-//   Page *new_table_page=buffer_pool_manager_->NewPage(new_page_id);
-//   char *buf=new_table_page->GetData();
-//   catalog_meta_->table_meta_pages_[new_table_id]=new_page_id;
-//   TableMetadata *new_table_metadata=TableMetadata::Create(new_table_id, table_name,new_page_id,now_schema);
-//   new_table_metadata->SerializeTo(buf);
-//   TableHeap *new_table_heap=TableHeap::Create(buffer_pool_manager_, now_schema, txn, log_manager_, lock_manager_);
-//   table_info=TableInfo::Create();
-//   table_info->Init(new_table_metadata, new_table_heap);
-
-//   tables_[new_table_id]=table_info;
-//   buffer_pool_manager_->UnpinPage(new_page_id,true);
-//   return DB_SUCCESS;
-// }
-
-
-
-/**
- * TODO: Student Implement
- */
-// dberr_t CatalogManager::CreateIndex(const std::string &table_name, const string &index_name,
-//                                     const std::vector<std::string> &index_keys, Txn *txn, IndexInfo *&index_info,
-//                                     const string &index_type) {//建立索引时，如果表中有数据，把数据插入索引
-//   if(table_names_.find(table_name)==table_names_.end())
-//   {
-//     return DB_TABLE_NOT_EXIST;
-//   }
-//   if(index_names_[table_name].find(index_name)!=index_names_[table_name].end())
-//   {
-//     return DB_INDEX_ALREADY_EXIST;
-//   }
-
-//   TableInfo *table_info=tables_[table_names_[table_name]];
-//   Schema *now_schema=table_info->GetSchema();
-//   std::vector<uint32_t>key_map;
-//   for(auto iter : index_keys)
-//   {
-//     uint32_t col_index;
-//     if(now_schema->GetColumnIndex(iter, col_index)==DB_COLUMN_NAME_NOT_EXIST)return DB_COLUMN_NAME_NOT_EXIST;
-//     else key_map.push_back(col_index);
-//   }
-
-//   index_id_t new_index_id=catalog_meta_->GetNextIndexId();
-//   index_names_[table_name][index_name]=new_index_id;
-
-//   page_id_t new_page_id;
-//   Page *new_index_page=buffer_pool_manager_->NewPage(new_page_id);
-//   char *buf=new_index_page->GetData();
-//   catalog_meta_->index_meta_pages_[new_index_id]=new_page_id;
-
-//   IndexMetadata *new_index_metadata=IndexMetadata::Create(new_index_id,index_name, table_names_[table_name],key_map);
-//   new_index_metadata->SerializeTo(buf);
-//   index_info=IndexInfo::Create();
-//   index_info->Init(new_index_metadata,table_info, buffer_pool_manager_);
-//   TableIterator new_table_iterator=table_info->GetTableHeap()->Begin(txn);
-//   while(new_table_iterator!=table_info->GetTableHeap()->End())
-//   {
-//     Row key_row;
-//     new_table_iterator->GetKeyFromRow(table_info->GetSchema(),index_info->GetIndexKeySchema(),key_row);
-//     dberr_t Ins_message=index_info->GetIndex()->InsertEntry(key_row,new_table_iterator->GetRowId(),txn);
-//     if(Ins_message==DB_FAILED)return DB_FAILED;
-//     new_table_iterator++;
-//   }//向索引中插入数据
-//   indexes_[new_index_id]=index_info;
-
-//   buffer_pool_manager_->UnpinPage(new_page_id,true);
-
-//   return DB_SUCCESS;
-// }
-
-
